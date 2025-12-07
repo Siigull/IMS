@@ -2,7 +2,7 @@ This is where the dataset of maps is kept. The data is too large to submit with 
 
 It can be dowloaded from https://download.geofabrik.de/europe/czech-republic.html# in raw directory index
 
-The files I have locally are
+The files I have locally are:
     - 140101.osm.pbf
     - 150101.osm.pbf
     - 160101.osm.pbf

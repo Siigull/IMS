@@ -6,9 +6,9 @@
 #define GRID_HEIGHT 1000
 #define GRID_WIDTH 1000
 
-#define BUILDING_FILE  "building_grid25.txt"
+#define BUILDING_FILE  "building_grid.txt"
+#define ROAD_FILE      "road_grid.txt"
 #define PROTECTED_FILE "protected_grid.txt"
-#define ROAD_FILE      "road_grid25.txt"
 #define SLOPE_FILE     "slope_grid.txt"
 #define FOREST_FILE    "forest_grid.txt"
 
