@@ -5,9 +5,6 @@
 
 #define GRID_HEIGHT 1000
 #define GRID_WIDTH 1000
-size_t to_i(int i, int j) {
-    return i * GRID_WIDTH + j;
-}
 
 #define BUILDING_FILE  "building_grid25.txt"
 #define PROTECTED_FILE "protected_grid.txt"
@@ -18,12 +15,13 @@ size_t to_i(int i, int j) {
 /////// DATA TYPES ///////
 //////////////////////////
 
+size_t to_i(int i, int j) {
+    return i * GRID_WIDTH + j;
+}
+
 typedef struct {
     float* slope;
-    // Should be. 1 - residential, 2 - commercial, 4 - industrial, 8 - other
-    // For now just 1 or 0. TODO(Sigull)
     uint8_t* buildings;
-    // For now just 1 or 0. Dont collect highways or other. Probably should
     uint8_t* roads;
     uint8_t* protect;
     uint8_t* forest;
@@ -77,8 +75,8 @@ typedef struct {
 ////// LOADING FROM FILE ////////
 /////////////////////////////////
 
-void load_buildings(Grid* grid) {
-    FILE* f = fopen(BUILDING_FILE, "r");
+void load_buildings(Grid* grid, const char* file_name) {
+    FILE* f = fopen(file_name, "r");
     if(f == NULL) exit(1);
 
     int x = 0, i=0;
@@ -90,8 +88,8 @@ void load_buildings(Grid* grid) {
     }
 }
 
-void load_slope(Grid* grid) {
-    FILE* f = fopen(SLOPE_FILE, "r");
+void load_slope(Grid* grid, const char* file_name) {
+    FILE* f = fopen(file_name, "r");
     if(f == NULL) exit(1);
 
     int i=0;
@@ -105,8 +103,8 @@ void load_slope(Grid* grid) {
     assert(i == GRID_HEIGHT * GRID_WIDTH);
 }
 
-void load_roads(Grid* grid) {
-    FILE* f = fopen(ROAD_FILE, "r");
+void load_roads(Grid* grid, const char* file_name) {
+    FILE* f = fopen(file_name, "r");
     if(f == NULL) exit(1);
 
     int x = 0, i=0;
@@ -120,8 +118,8 @@ void load_roads(Grid* grid) {
     assert(i == GRID_HEIGHT * GRID_WIDTH);
 }
 
-void load_protected(Grid* grid) {
-    FILE* f = fopen(PROTECTED_FILE, "r");
+void load_protected(Grid* grid, const char* file_name) {
+    FILE* f = fopen(file_name, "r");
     if(f == NULL) exit(1);
 
     int x = 0, i=0;
@@ -135,8 +133,8 @@ void load_protected(Grid* grid) {
     assert(i == GRID_HEIGHT * GRID_WIDTH);
 }
 
-void load_forest(Grid* grid) {
-    FILE* f = fopen(FOREST_FILE, "r");
+void load_forest(Grid* grid, const char* file_name) {
+    FILE* f = fopen(file_name, "r");
     if(f == NULL) exit(1);
 
     int x = 0, i=0;
@@ -151,21 +149,32 @@ void load_forest(Grid* grid) {
 }
 
 void load_grid(Grid* grid) {
-    load_slope(grid);
-    load_buildings(grid);
-    load_roads(grid);
-    load_protected(grid);
-    load_forest(grid);
+    load_slope(grid, SLOPE_FILE);
+    load_buildings(grid, BUILDING_FILE);
+    load_roads(grid, ROAD_FILE);
+    load_protected(grid, PROTECTED_FILE);
+    load_forest(grid, FOREST_FILE);
+}
+
+void print_single_grid(uint8_t* grid) {
+    for(int i=0; i < GRID_HEIGHT; i++) {
+        for(int j=0; j < GRID_WIDTH; j++) {
+            printf("%d ", grid[to_i(i, j)]);
+        }
+        printf("\n");
+    }
 }
 
 //////// SIMULATION /////////
 /////////////////////////////
 
 #define MAX_COEFF_VALUE 100
-int coeff_diffusion = 5;     // Spontaneous growth
-int coeff_breed = 15;        // Likelihood of new settlement becoming a spreading center
-int coeff_spread = 20;       // Organic/Edge growth
-int coeff_road = 15;         // Road gravity influence
+
+// Default coefficient values set
+int   coeff_diffusion = 5;   // Spontaneous growth
+int   coeff_breed = 15;      // Likelihood of new settlement becoming a spreading center
+int   coeff_spread = 20;     // Organic/Edge growth
+int   coeff_road = 15;       // Road gravity influence
 float critical_slope = 25.0; // Slope at which growth is impossible
 
 /**
@@ -212,6 +221,7 @@ void calculate_calc_grids(Grid* grid, Grid_Calculated* calc) {
 }
 
 // Helper to check growth validity (slope, protection, bounds)
+// Also adds probabilites of growth for forest and slope
 bool can_grow(Grid* g, int i, int j) {
     size_t idx = to_i(i, j);
     if (i < 0 || i >= GRID_HEIGHT || j < 0 || j >= GRID_WIDTH) return false;
@@ -232,16 +242,21 @@ bool can_grow(Grid* g, int i, int j) {
     return true;
 }
 
-bool will_grow(int grid_val, float mod, float coeff) {
+/**
+ * @brief Roll of dice if cell will grow with coefficients
+ *        (1 coeff == (1% chance to grow / ADJUST)) outside of slope and forest factors in can_grow
+ *        
+ */
+bool will_grow(int cell_val, float max_cell_val, float coeff) {
 #define ADJUST 10
-    return ((rand() % MAX_COEFF_VALUE) / (mod * ADJUST)) * grid_val > coeff;
+    return ((rand() % MAX_COEFF_VALUE) / (max_cell_val * ADJUST)) * cell_val > coeff;
 }
 
 void iter(Grid* from, Grid* to, Grid_Calculated* calc) {
     std::cerr<< "Iter starting.\n";
     calculate_calc_grids(from, calc);
 
-    // 3. Spontaneous Growth - Randomly selected pixels become urbanized
+    // Spontaneous growth - Randomly selected pixels become urbanized
     int diffusion_attempts = (GRID_HEIGHT * GRID_WIDTH * coeff_diffusion) / 1000000; 
     std::vector<int> new_spontaneous_indices;
 
@@ -256,16 +271,16 @@ void iter(Grid* from, Grid* to, Grid_Calculated* calc) {
         }
     }
 
-    // 4. New Spreading Centers (Breeding)
+    // New spreading centers
     // Spontaneous pixels have a chance to turn into new spreading centers
     for (int idx : new_spontaneous_indices) {
         if (will_grow(1, 1, coeff_breed)) {
             int r_i = idx / GRID_WIDTH;
             int r_j = idx % GRID_WIDTH;
 
-            // Urbanize immediate 3x3 neighbors
-            for (int ni = r_i - 1; ni <= r_i + 1; ni++) {
-                for (int nj = r_j - 1; nj <= r_j + 1; nj++) {
+#define NSTATEK 1 // Urbanize immediate (NSTATEK*2+1)^2 square around center
+            for (int ni = r_i - NSTATEK; ni <= r_i + NSTATEK; ni++) {
+                for (int nj = r_j - NSTATEK; nj <= r_j + NSTATEK; nj++) {
                     if (can_grow(from, ni, nj)) {
                         to->buildings[to_i(ni, nj)] = 1;
                     }
@@ -274,42 +289,33 @@ void iter(Grid* from, Grid* to, Grid_Calculated* calc) {
         }
     }
 
-    // 5. Edge (Organic) Growth & 6. Road Influence
+    // Edges (Buildings close) growth and Road (Roads close) growth
     for(int i=0; i < GRID_HEIGHT; i++) {
         for(int j=0; j < GRID_WIDTH; j++) {
-            // Skip if already urban or protected/steep (optimization)
+            // Skip if already urban or protected/steep
             if (from->buildings[to_i(i, j)] > 0) {
                 to->buildings[to_i(i, j)] = from->buildings[to_i(i, j)];
                 continue;
             }
-            if (!can_grow(from, i, j)) continue; 
+            if (!can_grow(from, i, j)) continue;
             
             int idx = to_i(i, j);
 
-            // -- Edge Growth --
+            // Edge Growth
             if (will_grow(calc->building_dis[idx], 
                           BUILD_CONV_SQUARE*BUILD_CONV_SQUARE, 
                           coeff_spread)) {
                 to->buildings[idx] = 1;
-                continue; // Skip if grew
+                continue; // Skip road if grew
             }
 
-            // -- Road Influence --
+            // Road Influence
             if (will_grow(calc->road_dis[idx], 
                 ROAD_CONV_SQUARE*ROAD_CONV_SQUARE, 
                 coeff_road)) {
                 to->buildings[idx] = 1;
             }
         }
-    }
-}
-
-void print_grid(uint8_t* grid) {
-    for(int i=0; i < GRID_HEIGHT; i++) {
-        for(int j=0; j < GRID_WIDTH; j++) {
-            printf("%d ", grid[to_i(i, j)]);
-        }
-        printf("\n");
     }
 }
 
@@ -331,5 +337,5 @@ int main() {
     iter(from, to, &calc);
     std::memcpy(from->buildings, to->buildings, sizeof(uint8_t) * GRID_HEIGHT * GRID_WIDTH);
 
-    print_grid(from->buildings);
+    print_single_grid(from->buildings);
 }
